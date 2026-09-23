@@ -1,4 +1,4 @@
-// TempMail frontend. Vanilla JS, no build step, no framework — the app is a
+// SubMail frontend. Vanilla JS, no build step, no framework — the app is a
 // single page with a handful of interactions, which doesn't need one.
 //
 // All API calls are same-origin, relative paths. Auth is header-based
@@ -8,8 +8,8 @@
 (() => {
   "use strict";
 
-  const STORAGE_MAILBOX_KEY = "tempmail:mailbox";
-  const STORAGE_THEME_KEY = "tempmail:theme";
+  const STORAGE_MAILBOX_KEY = "submail:mailbox";
+  const STORAGE_THEME_KEY = "submail:theme";
   const POLL_INTERVAL_MS = 12000;
 
   /** @type {{id:string,address:string,token:string,createdAt:number}|null} */
@@ -18,6 +18,9 @@
   let pollTimer = null;
   let openMessageId = null;
   let lastFocusedBeforeDialog = null;
+  let refreshInFlight = false;
+  let pollFailureCount = 0;
+  let seenMessageIds = new Set();
 
   // -----------------------------------------------------------------------
   // Elements
@@ -35,6 +38,8 @@
     customStatus: document.getElementById("custom-name-status"),
     messageList: document.getElementById("message-list"),
     emptyState: document.getElementById("empty-state"),
+    liveIndicator: document.getElementById("live-indicator"),
+    liveIndicatorLabel: document.getElementById("live-indicator-label"),
     messageView: document.getElementById("message-view"),
     messageViewBackdrop: document.getElementById("message-view-backdrop"),
     messageViewPanel: document.getElementById("message-view-panel"),
@@ -107,6 +112,31 @@
   }
 
   // -----------------------------------------------------------------------
+  // Seen-message tracking (drives the unread bar in the inbox list)
+  // -----------------------------------------------------------------------
+  const seenKeyFor = (mailboxId) => `submail:seen:${mailboxId}`;
+
+  function loadSeenMessageIds(mailboxId) {
+    const raw = safeGetItem(seenKeyFor(mailboxId));
+    if (!raw) return new Set();
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? new Set(parsed) : new Set();
+    } catch {
+      return new Set();
+    }
+  }
+
+  function markMessageSeen(messageId) {
+    if (!mailbox) return;
+    seenMessageIds.add(messageId);
+    // Bound the stored list to the most recent IDs we care about.
+    const trimmed = Array.from(seenMessageIds).slice(-500);
+    seenMessageIds = new Set(trimmed);
+    safeSetItem(seenKeyFor(mailbox.id), JSON.stringify(trimmed));
+  }
+
+  // -----------------------------------------------------------------------
   // API client
   // -----------------------------------------------------------------------
   async function api(path, options = {}) {
@@ -146,6 +176,7 @@
     const stored = loadStoredMailbox();
     if (stored) {
       mailbox = stored;
+      seenMessageIds = loadSeenMessageIds(stored.id);
       try {
         const info = await api("/api/mailbox");
         mailbox = { ...mailbox, address: info.address, createdAt: info.createdAt };
@@ -168,11 +199,26 @@
     });
     mailbox = data;
     persistMailbox(mailbox);
+    seenMessageIds = loadSeenMessageIds(mailbox.id);
     onMailboxReady();
   }
 
-  function onMailboxReady() {
+  function hideAddressSkeleton() {
+    // Both the property and a class: the old CSS kept .skeleton's explicit
+    // display:inline-block overriding the [hidden] attribute, which left the
+    // shimmer visible behind the real address forever (the reported
+    // "skeleton is still there" bug). styles.css now forces [hidden] to
+    // display:none and the class removal makes it robust either way.
     el.addressSkeleton.hidden = true;
+    el.addressSkeleton.classList.add("is-hidden");
+  }
+  function showAddressSkeleton() {
+    el.addressSkeleton.hidden = false;
+    el.addressSkeleton.classList.remove("is-hidden");
+  }
+
+  function onMailboxReady() {
+    hideAddressSkeleton();
     el.addressText.hidden = false;
     el.addressText.textContent = mailbox.address;
     el.copyBtn.disabled = false;
@@ -201,7 +247,7 @@
       safeRemoveItem(STORAGE_MAILBOX_KEY);
       mailbox = null;
       el.addressText.hidden = true;
-      el.addressSkeleton.hidden = false;
+      showAddressSkeleton();
       await createMailbox();
       showToast("New address created");
     } catch (err) {
@@ -248,7 +294,7 @@
         safeRemoveItem(STORAGE_MAILBOX_KEY);
         mailbox = null;
         el.addressText.hidden = true;
-        el.addressSkeleton.hidden = false;
+        showAddressSkeleton();
         await createMailbox(value);
         el.customForm.hidden = true;
         el.customToggleBtn.setAttribute("aria-expanded", "false");
@@ -291,6 +337,8 @@
   // -----------------------------------------------------------------------
   function startPolling() {
     stopPolling();
+    pollFailureCount = 0;
+    setLiveIndicator("live");
     pollTimer = setInterval(() => {
       if (!document.hidden) refreshMessages();
     }, POLL_INTERVAL_MS);
@@ -303,28 +351,70 @@
     if (!document.hidden && mailbox) refreshMessages();
   });
 
+  /**
+   * Drives the small "Live" chip next to the Inbox heading so the page is
+   * visibly refreshing:
+   *  - "live"    — polling normally; dot pulses
+   *  - "syncing" — a poll request is in flight
+   *  - "stalled" — the last 3+ polls failed (offline / API down); turns the
+   *                dot red and says "Reconnecting…" instead of silently
+   *                looking alive while nothing can arrive.
+   */
+  function setLiveIndicator(state) {
+    if (!mailbox) {
+      el.liveIndicator.hidden = true;
+      return;
+    }
+    el.liveIndicator.hidden = false;
+    el.liveIndicator.dataset.state = state;
+    if (state === "syncing") el.liveIndicatorLabel.textContent = "Checking for mail…";
+    else if (state === "stalled") el.liveIndicatorLabel.textContent = "Reconnecting…";
+    else el.liveIndicatorLabel.textContent = "Live — auto-refreshing";
+  }
+
   async function refreshMessages() {
     if (!mailbox) return;
+    if (refreshInFlight) return; // never stack overlapping polls
+    refreshInFlight = true;
+    setLiveIndicator("syncing");
     try {
       const data = await api("/api/mailbox/messages");
+      pollFailureCount = 0;
+      const previousIds = new Set(messages.map((m) => m.id));
+      const arrived = data.messages.filter((m) => !previousIds.has(m.id));
       messages = data.messages;
       renderMessageList();
+      if (previousIds.size > 0 && arrived.length > 0) {
+        showToast(arrived.length === 1 ? "New message received" : `${arrived.length} new messages received`);
+      }
+      setLiveIndicator("live");
     } catch {
       // Transient network/API errors during background polling shouldn't
-      // interrupt the user — the next poll will retry.
+      // interrupt the user — but after 3 consecutive failures, say so
+      // rather than silently appearing to work.
+      pollFailureCount += 1;
+      if (pollFailureCount >= 3) setLiveIndicator("stalled");
+      else setLiveIndicator("live");
+    } finally {
+      refreshInFlight = false;
     }
   }
 
   function renderMessageList() {
+    const previousFirst = el.messageList.firstElementChild;
+    const previousFirstId = previousFirst ? previousFirst.dataset.messageId : null;
+
     el.messageList.innerHTML = "";
     el.emptyState.hidden = messages.length > 0;
 
     for (const message of messages) {
       const li = document.createElement("li");
+      li.dataset.messageId = message.id;
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "message-item";
       btn.setAttribute("aria-haspopup", "dialog");
+      if (message.isUnread || !seenMessageIds.has(message.id)) btn.classList.add("is-unread");
 
       const row1 = document.createElement("div");
       row1.className = "message-item__row1";
@@ -354,6 +444,13 @@
       li.appendChild(btn);
       el.messageList.appendChild(li);
     }
+
+    // A message arriving during background polling gets a subtle highlight
+    // (and the list a gentle settle animation) so the change is noticeable.
+    const first = el.messageList.firstElementChild;
+    if (first && first.dataset.messageId && first.dataset.messageId !== previousFirstId) {
+      first.classList.add("is-new");
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -371,6 +468,7 @@
     el.messageViewClose.focus();
 
     document.addEventListener("keydown", onDialogKeydown);
+    markMessageSeen(id);
 
     try {
       const detail = await api(`/api/mailbox/messages/${id}`);
@@ -665,7 +763,7 @@
     el.messageViewDelete.addEventListener("click", handleDeleteMessage);
 
     initMailbox().catch((err) => {
-      el.addressSkeleton.hidden = true;
+      hideAddressSkeleton();
       el.addressText.hidden = false;
       el.addressText.textContent = "Couldn't create an address";
       showToast(friendlyErrorMessage(err));

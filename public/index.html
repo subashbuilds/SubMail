@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TempMail — disposable inbox</title>
-<meta name="description" content="A temporary email address that receives mail and deletes itself. No account, no signup.">
+<title>SubMail — disposable inbox</title>
+<meta name="description" content="SubMail gives you a temporary email address that receives mail and deletes itself. No account, no signup.">
 <meta name="color-scheme" content="light dark">
 
 <!--
@@ -28,24 +28,44 @@
 
 <header class="site-header">
   <div class="wrap site-header__row">
-    <a class="wordmark" href="/" aria-label="TempMail home">
-      <svg aria-hidden="true" viewBox="0 0 24 24" class="wordmark__icon"><path d="M2 5.5A1.5 1.5 0 0 1 3.5 4h17A1.5 1.5 0 0 1 22 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-17A1.5 1.5 0 0 1 2 18.5v-13Zm1.8.4 8.2 6.4 8.2-6.4"/></svg>
-      <span>TempMail</span>
+    <a class="wordmark" href="/" aria-label="SubMail home">
+      <!-- SubMail mark: blue envelope + scattered pixel squares -->
+      <svg aria-hidden="true" viewBox="0 0 64 64" class="wordmark__icon">
+        <defs>
+          <linearGradient id="submail-mark" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#4facfe"/>
+            <stop offset="1" stop-color="#1548c8"/>
+          </linearGradient>
+        </defs>
+        <rect x="6" y="16" width="44" height="34" rx="7" fill="url(#submail-mark)"/>
+        <path d="M8.5 19.5 28 34.5 47.5 19.5" fill="none" stroke="#ffffff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <rect x="45" y="5" width="9" height="9" rx="2" fill="#2f7cf6"/>
+        <rect x="56" y="13" width="6.5" height="6.5" rx="1.6" fill="#7db4ff"/>
+        <rect x="37" y="4" width="5.5" height="5.5" rx="1.4" fill="#1548c8"/>
+      </svg>
+      <span>SubMail</span>
     </a>
 
-    <div class="theme-switch" role="group" aria-label="Theme">
-      <button type="button" class="theme-switch__btn" data-theme-choice="light" aria-pressed="false" title="Light theme">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.6M12 18.9v2.6M4.9 4.9l1.85 1.85M17.25 17.25l1.85 1.85M2.5 12h2.6M18.9 12h2.6M4.9 19.1l1.85-1.85M17.25 6.75l1.85-1.85"/></svg>
-        <span class="sr-only">Light</span>
-      </button>
-      <button type="button" class="theme-switch__btn" data-theme-choice="dark" aria-pressed="false" title="Dark theme">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20.5 14.5a8.5 8.5 0 1 1-9-11 7 7 0 0 0 9 11Z"/></svg>
-        <span class="sr-only">Dark</span>
-      </button>
-      <button type="button" class="theme-switch__btn" data-theme-choice="system" aria-pressed="false" title="Match system">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="1.5"/><path d="M8.5 20h7M12 16.5V20"/></svg>
-        <span class="sr-only">System</span>
-      </button>
+    <div class="header-actions">
+      <a class="header-link" href="https://ko-fi.com/subashbuilds" target="_blank" rel="noopener noreferrer" aria-label="Support SubMail on Ko-fi" title="Support on Ko-fi">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 10.5V6a1 1 0 0 1 1-1h11.5A4.5 4.5 0 0 1 21 9.5v5a4.5 4.5 0 0 1-4.5 4.5H8.5A4.5 4.5 0 0 1 4 14.5v-.5m0-3.5h13m-13 0a2.5 2.5 0 0 0 0 3.5h2a2.5 2.5 0 0 0 0-3.5H4Zm13 0a2.75 2.75 0 0 1 0 5.5"/></svg>
+        <span class="sr-only">Support on Ko-fi</span>
+      </a>
+
+      <div class="theme-switch" role="group" aria-label="Theme">
+        <button type="button" class="theme-switch__btn" data-theme-choice="light" aria-pressed="false" title="Light theme">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.6M12 18.9v2.6M4.9 4.9l1.85 1.85M17.25 17.25l1.85 1.85M2.5 12h2.6M18.9 12h2.6M4.9 19.1l1.85-1.85M17.25 6.75l1.85-1.85"/></svg>
+          <span class="sr-only">Light</span>
+        </button>
+        <button type="button" class="theme-switch__btn" data-theme-choice="dark" aria-pressed="false" title="Dark theme">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20.5 14.5a8.5 8.5 0 1 1-9-11 7 7 0 0 0 9 11Z"/></svg>
+          <span class="sr-only">Dark</span>
+        </button>
+        <button type="button" class="theme-switch__btn" data-theme-choice="system" aria-pressed="false" title="Match system">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="1.5"/><path d="M8.5 20h7M12 16.5V20"/></svg>
+          <span class="sr-only">System</span>
+        </button>
+      </div>
     </div>
   </div>
   <div class="airmail-stripe" aria-hidden="true"></div>
@@ -58,51 +78,71 @@
     <p class="intro__sub">A disposable inbox that deletes itself. No account, nothing to remember.</p>
   </section>
 
-  <section class="mailbox-card" aria-label="Your temporary address">
-    <div class="address-row">
-      <p class="address-row__value" id="address-value" aria-live="polite">
-        <span class="skeleton" id="address-skeleton" aria-hidden="true"></span>
-        <span id="address-text" hidden></span>
-      </p>
-      <button type="button" class="btn btn--icon" id="copy-btn" disabled aria-label="Copy address">
-        <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/></svg>
-        <span id="copy-btn-label">Copy</span>
-      </button>
-    </div>
-
-    <div class="mailbox-actions">
-      <button type="button" class="btn btn--ghost" id="new-address-btn" disabled>New address</button>
-      <button type="button" class="btn btn--ghost" id="custom-toggle-btn" aria-expanded="false" aria-controls="custom-form" disabled>Use custom name</button>
-    </div>
-
-    <form class="custom-form" id="custom-form" hidden>
-      <div class="custom-form__row">
-        <label for="custom-name" class="sr-only">Custom name</label>
-        <div class="custom-form__field">
-          <input type="text" id="custom-name" name="localPart" autocomplete="off" spellcheck="false"
-                 placeholder="your-name" maxlength="64" aria-describedby="custom-name-domain custom-name-status">
-          <span id="custom-name-domain" class="custom-form__domain"></span>
+  <div class="layout">
+    <section class="mailbox-card" aria-label="Your temporary address">
+        <div class="address-row">
+          <p class="address-row__value" id="address-value" aria-live="polite">
+            <span class="skeleton" id="address-skeleton" aria-hidden="true"></span>
+            <span id="address-text" hidden></span>
+          </p>
+          <button type="button" class="btn btn--icon" id="copy-btn" disabled aria-label="Copy address">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/></svg>
+            <span id="copy-btn-label">Copy</span>
+          </button>
         </div>
-        <button type="submit" class="btn btn--primary" id="custom-check-btn">Check &amp; create</button>
-      </div>
-      <p id="custom-name-status" class="custom-form__status" role="status" aria-live="polite"></p>
-    </form>
+
+        <div class="mailbox-actions">
+          <button type="button" class="btn btn--ghost" id="new-address-btn" disabled>New address</button>
+          <button type="button" class="btn btn--ghost" id="custom-toggle-btn" aria-expanded="false" aria-controls="custom-form" disabled>Use custom name</button>
+        </div>
+
+        <form class="custom-form" id="custom-form" hidden>
+          <div class="custom-form__row">
+            <label for="custom-name" class="sr-only">Custom name</label>
+            <div class="custom-form__field">
+              <input type="text" id="custom-name" name="localPart" autocomplete="off" spellcheck="false"
+                     placeholder="your-name" maxlength="64" aria-describedby="custom-name-domain custom-name-status">
+              <span id="custom-name-domain" class="custom-form__domain"></span>
+            </div>
+            <button type="submit" class="btn btn--primary" id="custom-check-btn">Check &amp; create</button>
+          </div>
+          <p id="custom-name-status" class="custom-form__status" role="status" aria-live="polite"></p>
+        </form>
   </section>
 
   <section class="inbox" aria-label="Inbox">
-    <div class="inbox__head">
-      <h2>Inbox</h2>
-    </div>
+        <div class="inbox__head">
+          <h2>Inbox</h2>
+          <span class="live-indicator" id="live-indicator" hidden>
+            <span class="live-indicator__dot" aria-hidden="true"></span>
+            <span id="live-indicator-label">Live — auto-refreshing</span>
+          </span>
+        </div>
 
-    <ul class="message-list" id="message-list"></ul>
+        <ul class="message-list" id="message-list"></ul>
 
-    <div class="empty-state" id="empty-state">
-      <p class="empty-state__title">No messages yet</p>
-      <p class="empty-state__sub">Waiting for incoming email&hellip;</p>
-    </div>
+        <div class="empty-state" id="empty-state">
+          <p class="empty-state__title">No messages yet</p>
+          <p class="empty-state__sub">Waiting for incoming email&hellip;</p>
+        </div>
   </section>
+  </div>
 
 </main>
+
+<footer class="site-footer">
+  <div class="wrap site-footer__row">
+    <span class="site-footer__brand">SubMail</span>
+    <nav class="site-footer__links" aria-label="Footer">
+      <a href="/terms.html">Terms of Service</a>
+      <a href="https://github.com/justinbat22/SubMail" target="_blank" rel="noopener noreferrer">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.56 9.56 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>
+        Star on GitHub
+      </a>
+      <a href="https://ko-fi.com/subashbuilds" target="_blank" rel="noopener noreferrer">Support</a>
+    </nav>
+  </div>
+</footer>
 
 <!-- Message detail view. A dialog rather than a page navigation, so state
      (inbox scroll position, polling) is preserved underneath. -->

@@ -9,7 +9,7 @@
 // plain `script-src 'self'` with no 'unsafe-inline' (see public/_headers).
 (function () {
   try {
-    var stored = localStorage.getItem("tempmail:theme");
+    var stored = localStorage.getItem("submail:theme");
     if (stored === "light" || stored === "dark") {
       document.documentElement.setAttribute("data-theme", stored);
     }

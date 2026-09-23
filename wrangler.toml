@@ -1,4 +1,4 @@
-name = "tempmail"
+name = "submail"
 main = "src/index.ts"
 compatibility_date = "2024-09-25"
 compatibility_flags = ["nodejs_compat"]
@@ -7,6 +7,12 @@ compatibility_flags = ["nodejs_compat"]
 # Environment variables (non-secret configuration).
 # Override per-environment below. Nothing here is a secret.
 # ---------------------------------------------------------------------------
+[env.production]
+# Pin the worker name for the production environment. Without this, wrangler
+# would deploy `--env production` as "submail-production" (it appends the
+# environment name to the top-level name by default).
+name = "submail"
+
 [env.production.vars]
 EMAIL_DOMAIN = "submail.bond"
 APP_URL = "https://submail.bond"
@@ -19,17 +25,20 @@ CLEANUP_BATCH_SIZE = "50"
 
 # Backblaze B2 attachment storage (non-secret parts; B2_KEY_ID and
 # B2_APPLICATION_KEY are secrets set via `wrangler secret put`).
+# NOTE: B2_BUCKET keeps the existing live bucket name — Backblaze cannot
+# rename buckets, so only change this after creating the replacement bucket
+# in the same region and re-pointing the bucket-restricted app key.
 B2_REGION = "eu-central-003"
 B2_BUCKET = "tempmail-attachments"
 
 # ---------------------------------------------------------------------------
 # D1 database binding.
-# Create with: npx wrangler d1 create tempmail-db
+# Create with: npx wrangler d1 create submail-db
 # Paste the returned database_id below.
 # ---------------------------------------------------------------------------
 [[env.production.d1_databases]]
 binding = "DB"
-database_name = "tempmail-db"
+database_name = "submail-db"
 database_id = "e8708351-7e90-45db-ad39-a4ba5394c247"
 migrations_dir = "migrations"
 
@@ -78,25 +87,14 @@ crons = ["0 * * * *"]
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Example named environments. Duplicate/adjust as needed.
-# Usage: npx wrangler deploy --env staging
+# Named environment: production.
+# All real configuration lives under [env.production.*], so EVERY wrangler
+# command that touches this config must pass --env production:
+#   npx wrangler deploy --env production
+#   npx wrangler dev --env production
+#   npx wrangler secret put B2_KEY_ID --env production
+#   npx wrangler secret put B2_APPLICATION_KEY --env production
+# Secrets are per-environment — a secret set without --env is NOT visible to
+# this environment. (This is also why wrangler asks to pick an environment
+# on `secret put`: with named envs present, it never guesses.)
 # ---------------------------------------------------------------------------
-[env.staging.vars]
-EMAIL_DOMAIN = "staging.example.com"
-APP_URL = "https://staging-app.example.com"
-MAILBOX_TTL_HOURS = "48"
-MAX_MESSAGE_SIZE = "10485760"
-MAX_ATTACHMENT_SIZE = "5242880"
-MAX_ATTACHMENTS_PER_MESSAGE = "10"
-MAX_MESSAGES_PER_MAILBOX = "200"
-CLEANUP_BATCH_SIZE = "50"
-B2_REGION = "us-east-005"
-B2_BUCKET = "tempmail-attachments-staging"
-
-[[env.staging.d1_databases]]
-binding = "DB"
-database_name = "tempmail-db-staging"
-database_id = "REPLACE_WITH_YOUR_STAGING_D1_DATABASE_ID"
-migrations_dir = "migrations"
-
-# Staging uses its own B2 bucket + dedicated staging app key (secret).

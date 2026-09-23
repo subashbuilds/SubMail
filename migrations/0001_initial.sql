@@ -1,7 +1,7 @@
 -- Initial schema for the temporary email service.
 -- Apply with:
---   npx wrangler d1 migrations apply tempmail-db --local
---   npx wrangler d1 migrations apply tempmail-db --remote
+--   npx wrangler d1 migrations apply submail-db --local
+--   npx wrangler d1 migrations apply submail-db --remote
 
 PRAGMA foreign_keys = ON;
 

@@ -14,13 +14,17 @@
   --border-strong: #c7c2b2;
 
   --red: #b8402a;
-  --blue: #1f4d85;
+  --blue: #1e63e9;
+  --blue-bright: #4facfe;
   --red-soft: #f4e2dd;
   --blue-soft: #dfe8f3;
 
   --danger: #b8402a;
   --danger-surface: #f9e9e5;
-  --focus: #1f4d85;
+  --focus: #1e63e9;
+
+  --ok: #157a4c;
+  --ok-soft: #e2f3ea;
 
   --font-display: "Spectral", Georgia, "Times New Roman", serif;
   --font-body: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -43,13 +47,17 @@
     --border-strong: #3a4049;
 
     --red: #e2765e;
-    --blue: #7ba3de;
+    --blue: #6ea1ff;
+    --blue-bright: #4facfe;
     --red-soft: #3a2622;
     --blue-soft: #1f2c3d;
 
     --danger: #e2765e;
     --danger-surface: #3a2622;
-    --focus: #7ba3de;
+    --focus: #6ea1ff;
+
+    --ok: #4cc48c;
+    --ok-soft: #1d3529;
 
     --shadow-panel: 0 12px 32px -16px rgba(0, 0, 0, 0.6);
     color-scheme: dark;
@@ -66,13 +74,17 @@
   --border-strong: #3a4049;
 
   --red: #e2765e;
-  --blue: #7ba3de;
+  --blue: #6ea1ff;
+  --blue-bright: #4facfe;
   --red-soft: #3a2622;
   --blue-soft: #1f2c3d;
 
   --danger: #e2765e;
   --danger-surface: #3a2622;
-  --focus: #7ba3de;
+  --focus: #6ea1ff;
+
+  --ok: #4cc48c;
+  --ok-soft: #1d3529;
 
   --shadow-panel: 0 12px 32px -16px rgba(0, 0, 0, 0.6);
   color-scheme: dark;
@@ -99,12 +111,24 @@ p { margin: 0; }
 ul { list-style: none; margin: 0; padding: 0; }
 button { font-family: inherit; }
 
+/* The [hidden] attribute must always win over any component display value —
+   without this, elements whose class sets display (e.g. .skeleton's
+   inline-block) stay visible after JS sets hidden=true (the "skeleton never
+   goes away" bug). */
+[hidden] { display: none !important; }
+
 a { color: var(--blue); }
 
 .wrap {
   max-width: 640px;
   margin: 0 auto;
   padding-inline: 20px;
+}
+
+/* Desktop: the extra room goes to a wider content column with the mailbox
+   card and inbox side by side (see the .layout media query further down). */
+@media (min-width: 960px) {
+  .wrap { max-width: 1100px; }
 }
 
 .sr-only {
@@ -204,6 +228,33 @@ a { color: var(--blue); }
 }
 .theme-switch__btn:hover { color: var(--ink); }
 
+.header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  color: var(--muted);
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+.header-link svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.header-link:hover { color: var(--blue); background: var(--surface-2); }
+
 .airmail-stripe {
   height: 4px;
   background: repeating-linear-gradient(
@@ -265,6 +316,11 @@ a { color: var(--blue); }
   0% { background-position: 100% 50%; }
   100% { background-position: 0 50%; }
 }
+
+/* Belt-and-suspenders with the global [hidden] rule: JS also toggles this
+   class when hiding the shimmer, so the skeleton is guaranteed to vanish
+   once the real address renders (and only during generation). */
+.skeleton.is-hidden { display: none; }
 
 .mailbox-actions {
   display: flex;
@@ -365,10 +421,80 @@ a { color: var(--blue); }
 .custom-form__status[data-state="error"] { color: var(--danger); }
 
 /* ---------------------------------------------------------------------
+   Layout: two-column on desktop, stacked on mobile
+   ------------------------------------------------------------------- */
+.layout { display: block; }
+
+@media (min-width: 960px) {
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(360px, 5fr) 7fr;
+    gap: 28px;
+    align-items: start;
+  }
+  .layout__mailbox .mailbox-card {
+    position: sticky;
+    top: 20px;
+    margin-bottom: 0;
+  }
+  .layout__mailbox .inbox { margin-top: 0; }
+  .intro { padding-block: 48px 32px; }
+}
+
+/* ---------------------------------------------------------------------
    Inbox
    ------------------------------------------------------------------- */
-.inbox__head { margin-bottom: 12px; }
+.inbox__head {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .inbox__head h2 { font-size: 1.2rem; }
+
+/* "Live" chip: makes background polling visible. Pulse = healthy;
+   amber = a poll is in flight; red = connection lost (reconnecting). */
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--surface);
+  white-space: nowrap;
+}
+.live-indicator__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ok);
+  animation: live-pulse 2.2s ease-in-out infinite;
+}
+.live-indicator[data-state="syncing"] .live-indicator__dot {
+  background: var(--blue);
+  animation-duration: 0.9s;
+}
+.live-indicator[data-state="stalled"] .live-indicator__dot {
+  background: var(--danger);
+  animation: none;
+}
+.live-indicator[data-state="stalled"] {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent); }
+  50% { opacity: 0.55; box-shadow: 0 0 0 5px color-mix(in srgb, var(--ok) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-indicator__dot { animation: none; }
+}
 
 .message-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 
@@ -380,6 +506,7 @@ a { color: var(--blue); }
   gap: 2px;
   background: var(--surface);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
   cursor: pointer;
@@ -387,6 +514,14 @@ a { color: var(--blue); }
 }
 .message-item:hover { border-color: var(--border-strong); }
 .message-item.is-unread { border-left: 3px solid var(--blue); }
+.message-item.is-new { animation: message-arrive 0.7s ease; }
+@keyframes message-arrive {
+  0% { background: var(--blue-soft); transform: translateY(-3px); }
+  100% { background: var(--surface); transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-item.is-new { animation: none; }
+}
 
 .message-item__row1 {
   display: flex;
@@ -520,6 +655,59 @@ a { color: var(--blue); }
   z-index: 60;
   box-shadow: var(--shadow-panel);
 }
+
+/* ---------------------------------------------------------------------
+   Footer
+   ------------------------------------------------------------------- */
+.site-footer {
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  margin-top: 56px;
+}
+.site-footer__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-block: 18px;
+  font-size: 0.88rem;
+}
+.site-footer__brand {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--muted);
+}
+.site-footer__links {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.site-footer__links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.site-footer__links a svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
+.site-footer__links a:hover { color: var(--blue); }
+
+/* ---------------------------------------------------------------------
+   Legal pages (Terms of Service)
+   ------------------------------------------------------------------- */
+.legal { padding-block: 36px 24px; }
+.legal h1 { font-size: clamp(1.75rem, 1.4rem + 1.5vw, 2.25rem); }
+.legal__updated { margin-top: 6px; color: var(--muted); font-size: 0.9rem; }
+.legal h2 { font-size: 1.15rem; margin-top: 28px; }
+.legal p, .legal li { margin-top: 10px; color: var(--ink); max-width: 70ch; }
+.legal ul { list-style: disc; padding-left: 22px; }
+.legal strong { font-weight: 600; }
 
 /* ---------------------------------------------------------------------
    Small screens: keep generous tap targets, prevent overflow

@@ -1,19 +1,19 @@
 {
-  "name": "tempmail",
+  "name": "submail",
   "version": "0.1.0",
   "private": true,
-  "description": "Production-ready temporary email service (Cloudflare Workers + D1 + Backblaze B2 attachments + Email Routing).",
+  "description": "SubMail — production-ready disposable email service (Cloudflare Workers + D1 + Backblaze B2 attachments + Email Routing).",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --env production",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src tests data",
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy": "wrangler deploy",
-    "db:migrate:local": "wrangler d1 migrations apply tempmail-db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply tempmail-db --remote"
+    "deploy": "wrangler deploy --env production",
+    "db:migrate:local": "wrangler d1 migrations apply submail-db --local --env production",
+    "db:migrate:remote": "wrangler d1 migrations apply submail-db --remote --env production"
   },
   "dependencies": {
     "aws4fetch": "^1.0.20",
@@ -21,17 +21,17 @@
     "postal-mime": "^3.0.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.12.0",
-    "@cloudflare/workers-types": "^4.20260702.0",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260811.1",
     "@eslint/js": "^9.0.0",
     "eslint": "^9.0.0",
     "typescript": "^5.5.0",
     "typescript-eslint": "^8.0.0",
-    "vitest": "^3.2.0",
-    "wrangler": "4.72.0"
+    "vitest": "^4.1.11",
+    "wrangler": "4.137.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   },
   "allowScripts": {
     "esbuild@0.27.3": true,
