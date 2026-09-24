@@ -94,7 +94,10 @@
    Reset & base
    ------------------------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html {
+  -webkit-text-size-adjust: 100%;
+  min-height: 100%;
+}
 
 body {
   margin: 0;
@@ -104,6 +107,13 @@ body {
   font-size: 16px;
   line-height: 1.5;
   min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+main#main {
+  flex: 1 0 auto;
 }
 
 h1, h2, h3 { font-family: var(--font-display); font-weight: 600; margin: 0; }
@@ -683,6 +693,7 @@ a { color: var(--blue); }
   border-top: 1px solid var(--border);
   background: var(--surface);
   margin-top: 56px;
+  flex-shrink: 0;
 }
 .site-footer__row {
   display: flex;

@@ -11,7 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.json)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers%20%2B%20D1-F38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/workers/)
 [![Backblaze B2](https://img.shields.io/badge/storage-Backblaze%20B2-E21E29)](https://www.backblaze.com/cloud-storage)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-2f7cf6)](CONTRIBUTING.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-2f7cf6)](#contributing)
 
 </div>
 
