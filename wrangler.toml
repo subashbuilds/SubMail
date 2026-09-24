@@ -29,7 +29,7 @@ CLEANUP_BATCH_SIZE = "50"
 # rename buckets, so only change this after creating the replacement bucket
 # in the same region and re-pointing the bucket-restricted app key.
 B2_REGION = "eu-central-003"
-B2_BUCKET = "tempmail-attachments"
+B2_BUCKET = "submail-attachments"
 
 # ---------------------------------------------------------------------------
 # D1 database binding.
@@ -39,7 +39,7 @@ B2_BUCKET = "tempmail-attachments"
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "submail-db"
-database_id = "e8708351-7e90-45db-ad39-a4ba5394c247"
+database_id = "028c6a06-fe43-4616-9a9e-b07925ec1260"
 migrations_dir = "migrations"
 
 # ---------------------------------------------------------------------------

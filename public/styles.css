@@ -183,18 +183,38 @@ a { color: var(--blue); }
 .wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
   text-decoration: none;
-  color: var(--ink);
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 1.15rem;
 }
-.wordmark__icon {
-  width: 22px; height: 22px;
-  fill: none; stroke: currentColor; stroke-width: 1.6;
-  stroke-linecap: round; stroke-linejoin: round;
-  color: var(--blue);
+
+.wordmark__logo {
+  width: 150px;
+  height: auto;
+  display: block;
+  object-fit: contain;
+}
+
+.wordmark__logo--dark {
+  display: none;
+}
+
+/* Explicit dark mode */
+:root[data-theme="dark"] .wordmark__logo--light {
+  display: none;
+}
+
+:root[data-theme="dark"] .wordmark__logo--dark {
+  display: block;
+}
+
+/* System dark mode */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .wordmark__logo--light {
+    display: none;
+  }
+
+  :root:not([data-theme="light"]) .wordmark__logo--dark {
+    display: block;
+  }
 }
 
 .theme-switch {

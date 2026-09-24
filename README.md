@@ -1,16 +1,14 @@
 <div align="center">
 
-<img src="public/logo.svg" alt="SubMail logo" width="120" role="img">
+<img src="/public/favicon.png" alt="SubMail logo" width="120" role="img">
 
 # SubMail
 
 **A disposable email service that deletes itself. No account, no signup, no tracking.**
 
-[![CI](https://github.com/justinbat22/SubMail/actions/workflows/ci.yml/badge.svg)](https://github.com/justinbat22/SubMail/actions/workflows/ci.yml)
+[![CI](https://github.com/SubashBuilds/SubMail/actions/workflows/ci.yml/badge.svg)](https://github.com/SubashBuilds/SubMail/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-1e63e9.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A522-3C873A?logo=node.js&logoColor=white)](package.json)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.json)
-[![Tests](https://img.shields.io/badge/tests-200%20passing-157a4c)](#testing)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers%20%2B%20D1-F38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/workers/)
 [![Backblaze B2](https://img.shields.io/badge/storage-Backblaze%20B2-E21E29)](https://www.backblaze.com/cloud-storage)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-2f7cf6)](CONTRIBUTING.md)
@@ -116,14 +114,14 @@ Assets directly from the edge; anything under `/api/*` reaches the Worker's `fet
 ## Quick start
 
 ```bash
-git clone https://github.com/justinbat22/SubMail.git
+git clone https://github.com/SubashBuilds/SubMail.git
 cd SubMail
 npm install
 npx wrangler login
 
 # one-time: create the D1 database and paste its id into wrangler.toml
 npx wrangler d1 create submail-db
-npx wrangler d1 migrations apply submail-db --local
+npx wrangler d1 migrations apply submail-db --local --env production
 
 npm run dev          # http://localhost:8787 — full app, no B2 credentials needed
 ```
@@ -196,8 +194,8 @@ database_id = "PASTE_YOUR_ID_HERE"
 Apply the schema:
 
 ```bash
-npx wrangler d1 migrations apply submail-db --local   # for local dev
-npx wrangler d1 migrations apply submail-db --remote  # for the deployed Worker
+npx wrangler d1 migrations apply submail-db --local --env production   # for local dev
+npx wrangler d1 migrations apply submail-db --remote --env production  # for the deployed Worker
 ```
 
 This applies all four migrations, including the `mailbox_limits` table and the trigger that
@@ -219,8 +217,8 @@ Attachment storage lives in Backblaze B2 via its S3-Compatible API
 3. Set the credentials as Worker secrets (never in `wrangler.toml`):
 
    ```bash
-   npx wrangler secret put B2_KEY_ID           # the app key's keyID
-   npx wrangler secret put B2_APPLICATION_KEY  # the app key itself
+   npx wrangler secret put B2_KEY_ID --env production          # the app key's keyID
+   npx wrangler secret put B2_APPLICATION_KEY --env production  # the app key itself
    ```
 
    `B2_REGION` and `B2_BUCKET` are non-secret and live in the `[vars]` block of
@@ -266,7 +264,7 @@ Edit the `[vars]` block in `wrangler.toml` (`EMAIL_DOMAIN`, `APP_URL`, TTL, and 
 — see [Environment variables](#environment-variables)), then:
 
 ```bash
-npx wrangler deploy
+npx wrangler deploy --env production
 ```
 
 Re-run step 4 once the Worker exists so it's selectable as an Email Routing destination.
@@ -289,7 +287,7 @@ access is credential-based: `B2_KEY_ID` and `B2_APPLICATION_KEY` are **secrets**
 | `MAX_ATTACHMENTS_PER_MESSAGE`  | Attachments kept per message; extras are dropped     | `10`       |
 | `MAX_MESSAGES_PER_MAILBOX`     | Mailbox capacity; further mail is bounced (SMTP reject) | `200`   |
 | `CLEANUP_BATCH_SIZE`           | Mailboxes processed per Cron invocation              | `50`       |
-| `B2_REGION`                    | B2 S3 endpoint region (from the bucket's Endpoint)   | `us-east-005` |
+| `B2_REGION`                    | B2 S3 endpoint region (from the bucket's Endpoint)   | `eu-central-003` |
 | `B2_BUCKET`                    | Private B2 bucket holding attachment contents        | `submail-attachments` |
 | `B2_KEY_ID`                    | B2 application key ID (**secret** — `wrangler secret put`) | — |
 | `B2_APPLICATION_KEY`           | B2 application key (**secret** — `wrangler secret put`) | — |
@@ -516,8 +514,8 @@ that happen to appear in step output.
 To deploy manually instead:
 
 ```bash
-npx wrangler d1 migrations apply submail-db --remote
-npx wrangler deploy
+npx wrangler d1 migrations apply submail-db --remote --env production
+npx wrangler deploy --env production
 ```
 
 ## Known limitations
