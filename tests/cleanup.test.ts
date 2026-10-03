@@ -4,7 +4,7 @@ import worker from "../src/index.js";
 import { createMailbox } from "../src/db/mailboxes.js";
 import { createMessage, createAttachment, buildAttachmentR2Key } from "../src/db/messages.js";
 import { hashToken, generateMailboxToken } from "../src/lib/token.js";
-import { runExpiredMailboxCleanup } from "../src/cleanup/expired-mailboxes.js";
+import { runExpiredMailboxCleanup, sweepOrphanedAttachments } from "../src/cleanup/expired-mailboxes.js";
 import { applyAllMigrations, resetAllTables } from "./helpers/migrate.js";
 
 beforeAll(async () => {
@@ -324,5 +324,60 @@ describe("runExpiredMailboxCleanup", () => {
     const recentRow = await env.DB.prepare("SELECT 1 FROM rate_limits WHERE key = ?").bind("test:recent").first();
     expect(oldRow).toBeNull();
     expect(recentRow).not.toBeNull();
+  });
+
+  it("deletes stored objects whose mailbox row is gone, and keeps live mailboxes' objects", async () => {
+    // resetAllTables only clears D1; purge the object store so the swept
+    // count below is exact rather than including earlier tests' leftovers.
+    let cursor: string | undefined;
+    do {
+      const page = await env.ATTACHMENTS!.list({ cursor });
+      const keys = (page.objects ?? []).map((o) => o.key);
+      if (keys.length > 0) await env.ATTACHMENTS!.delete(keys);
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor);
+
+    const live = await createMailboxWithExpiry("still-here", Date.now() + 1000 * 60 * 60);
+    const gone = await createMailboxWithExpiry("vanished", Date.now() + 1000 * 60 * 60);
+
+    const liveKey = buildAttachmentR2Key(live.id, "msg-live");
+    const orphanKey = buildAttachmentR2Key(gone.id, "msg-orphan");
+    await env.ATTACHMENTS!.put(liveKey, new TextEncoder().encode("live"));
+    await env.ATTACHMENTS!.put(orphanKey, new TextEncoder().encode("orphan"));
+
+    // The mailbox row disappears but its object does not — the state every
+    // other deletion path can never repair, because they all learn keys by
+    // joining the D1 rows that just went away.
+    await env.DB.prepare("DELETE FROM mailboxes WHERE id = ?").bind(gone.id).run();
+
+    const deleted = await sweepOrphanedAttachments(env, { minAgeMs: 0 });
+
+    expect(deleted).toBe(1);
+    expect(await env.ATTACHMENTS!.get(orphanKey)).toBeNull();
+    expect(await env.ATTACHMENTS!.get(liveKey)).not.toBeNull();
+  });
+
+  it("never sweeps a freshly written object (age guard protects in-flight uploads)", async () => {
+    const gone = await createMailboxWithExpiry("vanished-recent", Date.now() + 1000 * 60 * 60);
+    const orphanKey = buildAttachmentR2Key(gone.id, "msg-recent");
+    await env.ATTACHMENTS!.put(orphanKey, new TextEncoder().encode("recent"));
+    await env.DB.prepare("DELETE FROM mailboxes WHERE id = ?").bind(gone.id).run();
+
+    // Default 1-hour minimum age: a just-uploaded object is left alone.
+    expect(await sweepOrphanedAttachments(env)).toBe(0);
+    expect(await env.ATTACHMENTS!.get(orphanKey)).not.toBeNull();
+  });
+
+  it("runs the sweep as part of the cron cleanup", async () => {
+    const gone = await createMailboxWithExpiry("cron-orphan", Date.now() + 1000 * 60 * 60);
+    const orphanKey = buildAttachmentR2Key(gone.id, "msg-cron");
+    await env.ATTACHMENTS!.put(orphanKey, new TextEncoder().encode("orphan"));
+    await env.DB.prepare("DELETE FROM mailboxes WHERE id = ?").bind(gone.id).run();
+
+    const result = await runExpiredMailboxCleanup(env);
+
+    // The default age guard leaves a fresh object alone even here.
+    expect(result.orphanedObjectsDeleted).toBe(0);
+    expect(await env.ATTACHMENTS!.get(orphanKey)).not.toBeNull();
   });
 });

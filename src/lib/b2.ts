@@ -59,11 +59,20 @@ const STORAGE_DELETE_BATCH_SIZE = 1000;
 /** B2's Delete Objects requires Content-MD5 (an AWS S3 contract it follows). */
 const S3_XML_NAMESPACE = "http://s3.amazonaws.com/doc/2006-03-01/";
 
-/** The three operations the attachment pipeline needs from object storage. */
+/** One stored object, as reported by a listing. */
+export interface StoredObjectEntry {
+  key: string;
+  /** Epoch millis of the last write, used to avoid racing in-flight uploads. */
+  lastModified: number;
+}
+
+/** The operations the attachment pipeline needs from object storage. */
 interface AttachmentStorage {
   put(key: string, content: Uint8Array, contentType: string | null): Promise<void>;
   get(key: string): Promise<{ body: ReadableStream<Uint8Array>; contentType: string | null } | null>;
   deleteMany(keys: string[]): Promise<void>;
+  /** List objects under `prefix`, following pagination, capped at `maxKeys`. */
+  list(prefix: string, maxKeys: number): Promise<StoredObjectEntry[]>;
 }
 
 /**
@@ -103,6 +112,27 @@ function r2BindingStorage(bucket: NonNullable<Env["ATTACHMENTS"]>): AttachmentSt
         // DeleteObjects; the caller already chunks at that size.
         await bucket.delete(keys);
       }
+    },
+    async list(prefix, maxKeys) {
+      const entries: StoredObjectEntry[] = [];
+      let cursor: string | undefined;
+      while (entries.length < maxKeys) {
+        const page = await bucket.list({
+          prefix: prefix || undefined,
+          limit: Math.min(1000, maxKeys - entries.length),
+          cursor,
+        });
+        for (const object of page.objects ?? []) {
+          entries.push({
+            key: object.key,
+            lastModified:
+              object.uploaded instanceof Date ? object.uploaded.getTime() : Date.now(),
+          });
+        }
+        if (!page.truncated || !page.cursor) break;
+        cursor = page.cursor;
+      }
+      return entries.slice(0, maxKeys);
     },
   };
 }
@@ -169,6 +199,42 @@ function b2S3Storage(env: Env): AttachmentStorage {
         await b2DeleteObjectsChunk(env, keys.slice(i, i + STORAGE_DELETE_BATCH_SIZE));
       }
     },
+
+    async list(prefix, maxKeys) {
+      const entries: StoredObjectEntry[] = [];
+      let continuationToken: string | undefined;
+      while (entries.length < maxKeys) {
+        const url = new URL(
+          `https://s3.${env.B2_REGION}.backblazeb2.com/${env.B2_BUCKET}`
+        );
+        url.searchParams.set("list-type", "2");
+        if (prefix) url.searchParams.set("prefix", prefix);
+        if (continuationToken) url.searchParams.set("continuation-token", continuationToken);
+
+        const response = await b2Client(env).fetch(url.toString(), { method: "GET" });
+        if (!response.ok) {
+          throw new Error(`B2 ListObjectsV2 failed: HTTP ${response.status}`);
+        }
+        const xml = await response.text();
+        for (const match of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+          const block = match[1];
+          if (block === undefined) continue;
+          const key = block.match(/<Key>([\s\S]*?)<\/Key>/)?.[1];
+          if (key === undefined) continue;
+          const lastModified = block.match(/<LastModified>([\s\S]*?)<\/LastModified>/)?.[1];
+          entries.push({
+            key: decodeXmlEntities(key),
+            lastModified: lastModified ? Date.parse(lastModified) : 0,
+          });
+        }
+        const truncated = xml.includes("<IsTruncated>true</IsTruncated>");
+        continuationToken = xml.match(
+          /<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/
+        )?.[1];
+        if (!truncated || !continuationToken) break;
+      }
+      return entries.slice(0, maxKeys);
+    },
   };
 }
 
@@ -222,6 +288,16 @@ function escapeXml(text: string): string {
     .replace(/'/g, "&apos;");
 }
 
+/** Inverse of {@link escapeXml}, for XML values read back out of a listing. */
+function decodeXmlEntities(text: string): string {
+  return text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
 // ---------------------------------------------------------------------------
 // Public storage-agnostic API — the only surface the rest of the app uses.
 // ---------------------------------------------------------------------------
@@ -261,6 +337,21 @@ export async function getStoredObject(
  */
 export async function deleteStoredObjects(env: Env, keys: string[]): Promise<void> {
   await resolveAttachmentStorage(env).deleteMany(keys);
+}
+
+/**
+ * List stored objects under `prefix` (at most `maxKeys`), following
+ * pagination. Used by the cleanup job's orphan sweep: a storage object whose
+ * owning mailbox no longer exists in D1 has no other way to be discovered,
+ * because every other deletion path learns keys by joining D1 rows that are
+ * gone by then.
+ */
+export async function listStoredObjects(
+  env: Env,
+  prefix: string,
+  maxKeys: number
+): Promise<StoredObjectEntry[]> {
+  return resolveAttachmentStorage(env).list(prefix, maxKeys);
 }
 
 // ---------------------------------------------------------------------------
