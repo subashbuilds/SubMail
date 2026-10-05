@@ -1,7 +1,11 @@
 import type { Env } from "../types/index.js";
 import { loadConfig } from "../types/index.js";
 import { deleteMailboxCascade, findExpiredMailboxes } from "../db/mailboxes.js";
-import { deleteStoredObjects, listStoredObjects } from "../lib/b2.js";
+import {
+  deleteStoredObjectVersion,
+  listStoredObjectVersions,
+  type StoredObjectVersion,
+} from "../lib/b2.js";
 import { cleanupExpiredRateLimitWindows } from "../lib/rate-limit.js";
 
 /** Every attachment key lives under this prefix; the next segment is the mailbox id. */
@@ -41,28 +45,35 @@ export interface CleanupResult {
  * This sweeps storage directly and cross-checks each key's mailbox id against
  * D1. Keys belonging to a mailbox that still exists are never touched, so live
  * attachments are safe.
+ *
+ * It reads the VERSIONED listing rather than the ordinary object listing,
+ * because a key-addressed delete only hides an object behind a delete marker:
+ * the bytes stay stored and billable, and disappear from ListObjectsV2. An
+ * ordinary listing therefore reports such leftovers as absent, which is how
+ * 2 MB of already-deleted attachments survived in the bucket unseen. Each
+ * orphaned version is then deleted by its exact version id.
  */
 export async function sweepOrphanedAttachments(
   env: Env,
   options: { minAgeMs?: number } = {}
 ): Promise<number> {
   const minAgeMs = options.minAgeMs ?? ORPHAN_MIN_AGE_MS;
-  const entries = await listStoredObjects(env, ATTACHMENT_KEY_PREFIX, ORPHAN_SCAN_LIMIT);
+  const entries = await listStoredObjectVersions(env, ATTACHMENT_KEY_PREFIX, ORPHAN_SCAN_LIMIT);
   if (entries.length === 0) return 0;
 
   const cutoff = Date.now() - minAgeMs;
-  const keysByMailbox = new Map<string, string[]>();
+  const versionsByMailbox = new Map<string, StoredObjectVersion[]>();
   for (const entry of entries) {
     if (entry.lastModified > cutoff) continue;
     const mailboxId = entry.key.slice(ATTACHMENT_KEY_PREFIX.length).split("/")[0];
     if (!mailboxId) continue;
-    const keys = keysByMailbox.get(mailboxId);
-    if (keys) keys.push(entry.key);
-    else keysByMailbox.set(mailboxId, [entry.key]);
+    const versions = versionsByMailbox.get(mailboxId);
+    if (versions) versions.push(entry);
+    else versionsByMailbox.set(mailboxId, [entry]);
   }
-  if (keysByMailbox.size === 0) return 0;
+  if (versionsByMailbox.size === 0) return 0;
 
-  const mailboxIds = [...keysByMailbox.keys()];
+  const mailboxIds = [...versionsByMailbox.keys()];
   const liveMailboxIds = new Set<string>();
   for (let i = 0; i < mailboxIds.length; i += D1_IN_CLAUSE_CHUNK) {
     const chunk = mailboxIds.slice(i, i + D1_IN_CLAUSE_CHUNK);
@@ -75,13 +86,18 @@ export async function sweepOrphanedAttachments(
     for (const row of rows.results ?? []) liveMailboxIds.add(row.id);
   }
 
-  const orphaned: string[] = [];
-  for (const [mailboxId, keys] of keysByMailbox) {
-    if (!liveMailboxIds.has(mailboxId)) orphaned.push(...keys);
+  const orphaned: StoredObjectVersion[] = [];
+  for (const [mailboxId, versions] of versionsByMailbox) {
+    if (!liveMailboxIds.has(mailboxId)) orphaned.push(...versions);
   }
   if (orphaned.length === 0) return 0;
 
-  await deleteStoredObjects(env, orphaned);
+  // Delete by exact version id, so nothing is merely hidden behind a new
+  // delete marker. A version that is already gone is a no-op, which keeps the
+  // sweep idempotent across runs.
+  for (const version of orphaned) {
+    await deleteStoredObjectVersion(env, version);
+  }
   return orphaned.length;
 }
 

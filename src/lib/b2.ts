@@ -66,6 +66,24 @@ export interface StoredObjectEntry {
   lastModified: number;
 }
 
+/**
+ * One version of a stored object, as reported by a versioned listing.
+ *
+ * `versionId` is the only handle that can permanently remove the bytes: a
+ * key-addressed delete can only ever hide the current version behind a
+ * delete marker (see {@link deleteStoredObjects}).
+ */
+export interface StoredObjectVersion {
+  key: string;
+  versionId: string;
+  /** Epoch millis of this version's upload. */
+  lastModified: number;
+  /** Byte size; delete markers are 0. */
+  size: number;
+  /** True for a delete marker rather than a real object version. */
+  isDeleteMarker: boolean;
+}
+
 /** The operations the attachment pipeline needs from object storage. */
 interface AttachmentStorage {
   put(key: string, content: Uint8Array, contentType: string | null): Promise<void>;
@@ -73,6 +91,17 @@ interface AttachmentStorage {
   deleteMany(keys: string[]): Promise<void>;
   /** List objects under `prefix`, following pagination, capped at `maxKeys`. */
   list(prefix: string, maxKeys: number): Promise<StoredObjectEntry[]>;
+  /**
+   * List every stored version under `prefix`, including non-current ones and
+   * delete markers, capped at `maxKeys`.
+   *
+   * R2's test seam has no versioning, so it returns the same shape with the
+   * object's own key as its version id — enough for the purge to be exercised
+   * without a real B2 bucket.
+   */
+  listVersions(prefix: string, maxKeys: number): Promise<StoredObjectVersion[]>;
+  /** Permanently delete one specific version by id. */
+  deleteVersion(version: StoredObjectVersion): Promise<void>;
 }
 
 /**
@@ -113,6 +142,39 @@ function r2BindingStorage(bucket: NonNullable<Env["ATTACHMENTS"]>): AttachmentSt
         await bucket.delete(keys);
       }
     },
+    async listVersions(prefix, maxKeys) {
+      const entries: StoredObjectVersion[] = [];
+      let cursor: string | undefined;
+      while (entries.length < maxKeys) {
+        const page = await bucket.list({
+          prefix: prefix || undefined,
+          limit: Math.min(1000, maxKeys - entries.length),
+          cursor,
+        });
+        for (const object of page.objects ?? []) {
+          entries.push({
+            key: object.key,
+            // R2 exposes no version ids; the key is a unique handle here
+            // because the R2 seam never accumulates non-current versions.
+            versionId: object.key,
+            lastModified:
+              object.uploaded instanceof Date ? object.uploaded.getTime() : Date.now(),
+            size: object.size,
+            isDeleteMarker: false,
+          });
+        }
+        if (!page.truncated || !page.cursor) break;
+        cursor = page.cursor;
+      }
+      return entries.slice(0, maxKeys);
+    },
+
+    async deleteVersion(version) {
+      // R2's delete is already unconditional — there is no hidden version
+      // left behind — so the version-aware path collapses to a plain delete.
+      await bucket.delete([version.key]);
+    },
+
     async list(prefix, maxKeys) {
       const entries: StoredObjectEntry[] = [];
       let cursor: string | undefined;
@@ -200,6 +262,49 @@ function b2S3Storage(env: Env): AttachmentStorage {
       }
     },
 
+    async listVersions(prefix, maxKeys) {
+      const entries: StoredObjectVersion[] = [];
+      let keyMarker: string | undefined;
+      let versionIdMarker: string | undefined;
+      while (entries.length < maxKeys) {
+        const url = new URL(`https://s3.${env.B2_REGION}.backblazeb2.com/${env.B2_BUCKET}`);
+        url.searchParams.set("versions", "");
+        if (prefix) url.searchParams.set("prefix", prefix);
+        if (keyMarker) url.searchParams.set("key-marker", keyMarker);
+        if (versionIdMarker) url.searchParams.set("version-id-marker", versionIdMarker);
+
+        const response = await b2Client(env).fetch(url.toString(), { method: "GET" });
+        if (!response.ok) {
+          throw new Error(`B2 ListVersions failed: HTTP ${response.status}`);
+        }
+        const xml = await response.text();
+        for (const version of parseVersionListing(xml)) entries.push(version);
+        if (entries.length >= maxKeys) break;
+        if (!/<IsTruncated>true<\/IsTruncated>/.test(xml)) break;
+        const nextKey = xml.match(/<NextKeyMarker>([\s\S]*?)<\/NextKeyMarker>/)?.[1];
+        if (nextKey === undefined) break;
+        keyMarker = decodeXmlEntities(nextKey);
+        versionIdMarker = xml.match(/<NextVersionIdMarker>([\s\S]*?)<\/NextVersionIdMarker>/)?.[1];
+      }
+      return entries.slice(0, maxKeys);
+    },
+
+    async deleteVersion(version) {
+      // S3 DeleteObject WITH a version id permanently removes that version,
+      // instead of dropping a delete marker over the current one. This is the
+      // S3 equivalent of B2's native b2_delete_file_version(fileName, fileId).
+      const response = await b2Client(env).fetch(
+        `https://s3.${env.B2_REGION}.backblazeb2.com/${env.B2_BUCKET}/${encodeObjectKeyPath(version.key)}` +
+          `?versionId=${encodeURIComponent(version.versionId)}`,
+        { method: "DELETE" }
+      );
+      if (!response.ok) {
+        throw new Error(
+          `B2 DeleteObject(version) failed for ${version.key}: HTTP ${response.status}`
+        );
+      }
+    },
+
     async list(prefix, maxKeys) {
       const entries: StoredObjectEntry[] = [];
       let continuationToken: string | undefined;
@@ -236,6 +341,36 @@ function b2S3Storage(env: Env): AttachmentStorage {
       return entries.slice(0, maxKeys);
     },
   };
+}
+
+/**
+ * Parse a ListVersions XML document.
+ *
+ * Entries are either `<Version>` (a real object version) or `<DeleteMarker>`
+ * (a tombstone left by a previous key-addressed delete). Both must be
+ * returned: purging only the real versions would leave the markers behind,
+ * which still count against the bucket's object quota.
+ */
+export function parseVersionListing(xml: string): StoredObjectVersion[] {
+  const versions: StoredObjectVersion[] = [];
+  for (const match of xml.matchAll(/<(Version|DeleteMarker)>([\s\S]*?)<\/\1>/g)) {
+    const isDeleteMarker = match[1] === "DeleteMarker";
+    const block = match[2];
+    if (block === undefined) continue;
+    const key = block.match(/<Key>([\s\S]*?)<\/Key>/)?.[1];
+    const versionId = block.match(/<VersionId>([\s\S]*?)<\/VersionId>/)?.[1];
+    if (key === undefined || versionId === undefined) continue;
+    const lastModified = block.match(/<LastModified>([\s\S]*?)<\/LastModified>/)?.[1];
+    const size = block.match(/<Size>(\d+)<\/Size>/)?.[1];
+    versions.push({
+      key: decodeXmlEntities(key),
+      versionId: decodeXmlEntities(versionId),
+      lastModified: lastModified ? Date.parse(lastModified) : 0,
+      size: size ? Number(size) : 0,
+      isDeleteMarker,
+    });
+  }
+  return versions;
 }
 
 /**
@@ -331,12 +466,131 @@ export async function getStoredObject(
 }
 
 /**
- * Delete any number of keys (chunked at the 1000-keys-per-call limit both
- * R2's batch delete and B2's DeleteObjects accept). Deleting a key that
- * doesn't exist is a no-op, so cleanup is idempotent.
+ * Delete any number of keys **and every stored version beneath them**.
+ *
+ * A plain key-addressed delete is NOT enough on B2. Per Backblaze's file
+ * versioning rules, deleting an object without a version id only drops a
+ * delete marker over the current version: the object disappears from
+ * ListObjectsV2 and from HEAD, but the underlying bytes remain stored (and
+ * billable) as a non-current version, visible in the B2 console. Nothing
+ * else in the app can reach them afterwards, because every deletion path
+ * learns keys from D1 rows that are already gone.
+ *
+ * So this does what `b2_delete_file_version` does — target the exact version
+ * id — via the S3 equivalent (`DELETE ?versionId=`). Steps:
+ *   1. key-addressed batch delete, so the key stops resolving at all (and so
+ *      a brand-new key with no versions is still handled);
+ *   2. versioned listing under each deleted key's prefix;
+ *   3. a versioned DELETE for every entry found, real versions and delete
+ *      markers alike.
+ *
+ * Idempotent: a key that has nothing left to remove contributes no versions,
+ * so repeated cleanup is a no-op.
  */
 export async function deleteStoredObjects(env: Env, keys: string[]): Promise<void> {
-  await resolveAttachmentStorage(env).deleteMany(keys);
+  if (keys.length === 0) return;
+  const storage = resolveAttachmentStorage(env);
+  await storage.deleteMany(keys);
+  await purgeAllVersionsOfKeys(storage, keys);
+}
+
+/**
+ * Permanently remove every version (and delete marker) under the given keys.
+ *
+ * Keys are deduped by prefix first: versions are discovered by prefix rather
+ * than by exact key, because B2's versioned listing has no "this exact key"
+ * filter, and sibling objects under a shared prefix must survive.
+ */
+async function purgeAllVersionsOfKeys(storage: AttachmentStorage, keys: string[]): Promise<void> {
+  // Versions can only be discovered by PREFIX, and B2's prefix match is a raw
+  // string comparison — NOT path-segment aware. Listing "attachments/m/a/file1"
+  // therefore also returns "attachments/m/a/file10" and "attachments/m/a/file11",
+  // which may be live attachments belonging to a message that is still in the
+  // inbox. So the exact key set is used as a filter and nothing outside it is
+  // ever deleted.
+  const targetKeys = new Set(keys);
+  const prefixes = dedupeKeyPrefixes(keys);
+  for (const prefix of prefixes) {
+    // Bounded: each pass re-lists because deletions change what comes back.
+    // The cap guarantees termination even if a listing keeps returning entries
+    // that deletion does not actually remove (e.g. eventual consistency), which
+    // would otherwise spin until the Worker's CPU budget is gone.
+    for (let pass = 0; pass < VERSION_PURGE_MAX_PASSES; pass++) {
+      const batch = await storage.listVersions(prefix, VERSION_PURGE_BATCH_SIZE);
+      const targeted = batch.filter((version) => targetKeys.has(version.key));
+      for (const version of targeted) {
+        await storage.deleteVersion(version);
+      }
+      // Exhausted when the listing is empty, smaller than the page cap, or
+      // contained nothing we were asked to remove.
+      if (batch.length < VERSION_PURGE_BATCH_SIZE || targeted.length === 0) break;
+    }
+  }
+}
+
+/**
+ * Hard cap on re-listing passes per prefix.
+ *
+ * A prefix can never hold more than {@link VERSION_PURGE_BATCH_SIZE} entries
+ * in a single page, so one pass normally suffices; the extra passes only
+ * matter for a pathological bucket. This exists so a stuck listing fails fast
+ * instead of burning the Worker's CPU budget.
+ */
+const VERSION_PURGE_MAX_PASSES = 5;
+
+/** Cap on versions examined per prefix per pass. */
+const VERSION_PURGE_BATCH_SIZE = 1000;
+
+/**
+ * Reduce keys to the set of prefixes that can be listed.
+ *
+ * A key may itself be a prefix of another key in the same batch, and
+ * listing both would visit the same versions twice. Keeping only prefixes
+ * that no other key sits under collapses those duplicates while still
+ * covering every affected key.
+ */
+export function dedupeKeyPrefixes(keys: string[]): string[] {
+  const sorted = [...new Set(keys)].sort();
+  const prefixes: string[] = [];
+  for (const key of sorted) {
+    const covered = prefixes.some(
+      (prefix) => key === prefix || key.startsWith(`${prefix}/`)
+    );
+    if (!covered) prefixes.push(key);
+  }
+  return prefixes;
+}
+
+/**
+ * List every stored version under `prefix` (at most `maxKeys`), including
+ * non-current versions and delete markers.
+ *
+ * This is the only way to discover the storage an ordinary listing hides, so
+ * the cleanup job's orphan sweep uses it: an object that a previous key-only
+ * delete already hid is invisible to `listStoredObjects` yet still occupies
+ * storage, and would otherwise never be reclaimed.
+ */
+export async function listStoredObjectVersions(
+  env: Env,
+  prefix: string,
+  maxKeys: number
+): Promise<StoredObjectVersion[]> {
+  return resolveAttachmentStorage(env).listVersions(prefix, maxKeys);
+}
+
+/**
+ * Permanently delete one specific version by id.
+ *
+ * This is the storage-agnostic equivalent of B2's native
+ * `b2_delete_file_version(fileName, fileId)`, using the S3 `versionId`
+ * parameter, which deletes that exact block of data without leaving a hide
+ * marker behind.
+ */
+export async function deleteStoredObjectVersion(
+  env: Env,
+  version: StoredObjectVersion
+): Promise<void> {
+  await resolveAttachmentStorage(env).deleteVersion(version);
 }
 
 /**
